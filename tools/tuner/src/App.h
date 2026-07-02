@@ -108,4 +108,7 @@ class App {
   // Help window.
   bool showHelp_ = true;
   double lastStreamSendMs_ = 0.0;  // throttle for mid-drag param updates
+
+  // Visually smoothed outputs for the preview bars and cube.
+  float dispOut_[6] = {};
 };

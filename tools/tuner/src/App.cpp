@@ -9,6 +9,8 @@
 #include "imgui.h"
 #include "implot.h"
 
+#include "Theme.h"
+
 namespace {
 
 const double kAxisLimit = 350.0;
@@ -516,6 +518,7 @@ void App::drawPlots() {
     static SeriesRef refs[9];
     for (int i = 0; i < 9; i++) {
       refs[i] = {&history_, i, true};
+      ImPlot::SetNextLineStyle(theme::kRawColors[i]);
       ImPlot::PlotLineG(kRawNames[i], seriesGetter, &refs[i], count);
     }
     ImPlot::EndPlot();
@@ -529,6 +532,7 @@ void App::drawPlots() {
     static SeriesRef refs[6];
     for (int i = 0; i < 6; i++) {
       refs[i] = {&history_, i, false};
+      ImPlot::SetNextLineStyle(theme::kAxisColors[i]);
       ImPlot::PlotLineG(kAxisNames[i], seriesGetter, &refs[i], count);
     }
     ImPlot::EndPlot();
@@ -540,16 +544,56 @@ void App::drawPlots() {
 void App::drawPreview() {
   ImGui::Begin("6DoF Preview");
 
-  float out[6] = {};
+  float target[6] = {};
   if (!history_.empty()) {
-    for (int i = 0; i < 6; i++) out[i] = history_.back().out[i];
+    for (int i = 0; i < 6; i++) target[i] = history_.back().out[i];
   }
 
+  // Critically-damped visual smoothing so bars and cube move fluidly even
+  // when samples arrive in bursts.
+  const float dt = ImGui::GetIO().DeltaTime;
+  const float alpha = 1.0f - std::exp(-dt / 0.05f);
+  float out[6];
   for (int i = 0; i < 6; i++) {
-    const float frac = 0.5f + 0.5f * out[i] / static_cast<float>(kAxisLimit);
-    char overlay[32];
-    std::snprintf(overlay, sizeof(overlay), "%s %+.0f", kAxisNames[i], out[i]);
-    ImGui::ProgressBar(frac, ImVec2(-1, 14), overlay);
+    dispOut_[i] += alpha * (target[i] - dispOut_[i]);
+    out[i] = dispOut_[i];
+  }
+
+  // Bipolar bars: zero at center, fill toward the deflection, colored to
+  // match the same axis in the Outputs plot.
+  ImDrawList* bars = ImGui::GetWindowDrawList();
+  const float barH = 16.0f;
+  const float rounding = barH * 0.5f;
+  for (int i = 0; i < 6; i++) {
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float wRow = ImGui::GetContentRegionAvail().x;
+
+    bars->AddRectFilled(p0, ImVec2(p0.x + wRow, p0.y + barH),
+                        ImGui::GetColorU32(theme::kField), rounding);
+
+    const float half = wRow * 0.5f;
+    const float frac = std::clamp(out[i] / static_cast<float>(kAxisLimit),
+                                  -1.0f, 1.0f);
+    const float cx = p0.x + half;
+    if (std::fabs(frac) > 0.004f) {
+      const float x1 = cx + frac * (half - 2.0f);
+      bars->AddRectFilled(
+          ImVec2(std::min(cx, x1), p0.y + 2.0f),
+          ImVec2(std::max(cx, x1), p0.y + barH - 2.0f),
+          ImGui::GetColorU32(theme::kAxisColors[i]), rounding - 2.0f);
+    }
+    bars->AddLine(ImVec2(cx, p0.y + 2.0f), ImVec2(cx, p0.y + barH - 2.0f),
+                  ImGui::GetColorU32(theme::kBorder), 1.0f);
+
+    bars->AddText(ImVec2(p0.x + 8.0f, p0.y + 1.0f),
+                  ImGui::GetColorU32(theme::kInkMuted), kAxisNames[i]);
+    char value[16];
+    std::snprintf(value, sizeof(value), "%+.0f", out[i]);
+    const ImVec2 valueSize = ImGui::CalcTextSize(value);
+    bars->AddText(ImVec2(p0.x + wRow - valueSize.x - 8.0f, p0.y + 1.0f),
+                  ImGui::GetColorU32(theme::kInk), value);
+
+    ImGui::Dummy(ImVec2(wRow, barH + 4.0f));
   }
 
   // Cube gizmo driven by the live pose.
@@ -594,10 +638,11 @@ void App::drawPreview() {
     proj[i] = ImVec2(center.x + x3 * f * scalePx, center.y + y3 * f * scalePx);
   }
   for (const auto& e : edges) {
-    dl->AddLine(proj[e[0]], proj[e[1]], IM_COL32(120, 200, 255, 220), 2.0f);
+    dl->AddLine(proj[e[0]], proj[e[1]], ImGui::GetColorU32(theme::kAccentHi),
+                2.0f);
   }
   // Mark the "front-top" corner so twist is visible.
-  dl->AddCircleFilled(proj[5], 4.0f, IM_COL32(255, 180, 60, 255));
+  dl->AddCircleFilled(proj[5], 4.5f, ImGui::GetColorU32(theme::kRawColors[7]));
 
   ImGui::Dummy(ImVec2(w, h));
   ImGui::End();
@@ -841,10 +886,15 @@ void App::drawCrosstalkPanel() {
           ImGui::TextDisabled("100");
           continue;
         }
-        ImVec4 color = v < 0.05f   ? ImVec4(0.3f, 0.8f, 0.3f, 1)
-                       : v < 0.15f ? ImVec4(0.9f, 0.8f, 0.2f, 1)
-                                   : ImVec4(0.9f, 0.3f, 0.3f, 1);
-        ImGui::TextColored(color, "%.1f", v * 100.0f);
+        // Severity as a background tint (status colors); the number itself
+        // stays in primary ink so it reads regardless of the tint.
+        ImVec4 status = v < 0.05f   ? theme::kGood
+                        : v < 0.15f ? theme::kWarning
+                                    : theme::kCritical;
+        status.w = 0.30f;
+        ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg,
+                               ImGui::GetColorU32(status));
+        ImGui::Text("%.1f", v * 100.0f);
       }
     }
     ImGui::EndTable();

@@ -4,6 +4,7 @@
 #include <tchar.h>
 
 #include "App.h"
+#include "Theme.h"
 #include "imgui.h"
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
@@ -140,7 +141,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   ImPlot::CreateContext();
   ImGuiIO& io = ImGui::GetIO();
   io.IniFilename = "cadmouse_tuner.ini";
-  ImGui::StyleColorsDark();
+
+  theme::LoadFonts();
+  theme::Apply();
 
   ImGui_ImplWin32_Init(hwnd);
   ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
@@ -164,7 +167,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       app.frame();
 
       ImGui::Render();
-      const float clear[4] = {0.06f, 0.07f, 0.09f, 1.0f};
+      const float clear[4] = {theme::kPage.x, theme::kPage.y, theme::kPage.z,
+                              1.0f};
       g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView,
                                               nullptr);
       g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView,

@@ -23,6 +23,7 @@ if(WIN32)
     ${CORE_SOURCES}
     src/SerialPort.cpp
     src/Flasher.cpp
+    src/Theme.cpp
     src/App.cpp
     src/main_win32.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp

@@ -3,6 +3,10 @@
 A Windows desktop app (Dear ImGui + ImPlot) for previewing, calibrating, and
 tuning the CAD Mouse MK2 live over USB serial — no reflashing needed.
 
+Ships with a custom dark theme (soft-rounded surfaces, Segoe UI, a
+CVD-validated chart palette, smoothed live meters) rather than the stock
+ImGui look; all design tokens live in [`src/Theme.h`](src/Theme.h).
+
 ![panels: Connection, Tuning, Signals, 6DoF Preview, Calibration Wizard, Crosstalk, Console]
 
 ## What it does
