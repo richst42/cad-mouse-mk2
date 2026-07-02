@@ -35,8 +35,15 @@ Touches: `MotionController.cpp/.h`, `Config.h`, firmware README (document new tu
 Goal: replace the hand-derived formulas with a calibration that measures how *this specific unit* responds, cancelling cross-coupling to first order.
 
 - Model the small-displacement relationship as **ΔB ≈ J·p**, where ΔB is the 9-vector of field deltas, p the 6-vector pose, and J a 9×6 Jacobian.
-- Add a **guided calibration mode** (extend `CalibratingState` or add a new state, LED-signalled): the user holds each pure motion at full deflection in turn (+Tx, −Tx, +Ty, … −Rz, 12 poses). Average the sensor deltas per pose to get the columns of J.
-- Compute the **pseudo-inverse J⁺ (6×9)** on-device (a 6×6 solve via Gauss-Jordan is enough on the RP2040) and use `p = J⁺·ΔB` at runtime instead of the fixed formulas. Cross-coupling is cancelled by construction because J captures the real geometry, magnet strength, and assembly tolerances of the unit.
+- Estimate the columns of J from **guided slow sweeps, not held pure poses** — a human cannot isolate single axes on this device, and doesn't need to. Each guided gesture only has to excite a known one- or two-dimensional subspace; PCA over the recorded sensor deltas extracts the direction(s):
+  - *Slow twist CW, then CCW* → the dominant principal component is the Rz direction; the twist direction fixes its sign.
+  - *Rim-press circle* (press down at the front edge, trace slowly around the rim) → the deltas sweep out a 2-D plane whose two principal components span Rx/Ry; the announced starting point and travel direction disambiguate which is which and their signs.
+  - *Horizontal slide circle* (push the knob sideways in a slow circle without tilting) → same trick for the Tx/Ty plane.
+  - *Press straight down / pull straight up* → Tz direction and sign.
+  - Amplitude: ask for full deflection during each sweep and use the peak projection as the full-scale reference per axis.
+- Stack the six identified unit directions as the columns of J, compute the **pseudo-inverse J⁺ (6×9)** (a 6×6 solve via Gauss-Jordan is enough on the RP2040, or solve on the PC in the tuner app), and use `p = J⁺·ΔB` at runtime instead of the fixed formulas. The pseudo-inverse — not per-axis projection — is what cancels the cross-coupling: it accounts for the directions *not* being orthogonal in sensor space, which is exactly the gesture contamination (a twist that also translates slightly, a tilt circle that isn't perfectly centered). First-order contamination in the captures therefore mostly cancels rather than corrupting the map.
+- After solving, the tuner app shows live decoupled outputs immediately, so a bad capture is obvious and any single gesture can be re-recorded and the matrix re-solved in seconds.
+- If guided sweeps still leave objectionable residual coupling, the fallback needs **no labels at all**: capture a minute of freeform wiggling, fit the dipole model offline (Phase 3 prototype), and derive the linear map from the fitted model around rest.
 - **Persist the matrix** (LittleFS/EEPROM emulation on the XIAO RP2040) so guided calibration is a one-time setup; the existing quick zero-baseline calibration remains the per-boot routine.
 - Normalize each axis by the measured full-deflection magnitude, which also makes the Phase-1 dead zones and curves consistent across axes and across builds.
 
@@ -55,7 +62,7 @@ Thermal drift and spring settling shift the rest point between manual calibratio
 
 The TLx493D sensors already report die temperature, and `SensorController::readRaw()` reads it on every frame and discards it ([SensorController.cpp:59-61](../firmware/src/controllers/SensorController.cpp)). Log temperature alongside field data during test captures; if the baseline correlates with temperature, add a simple linear temperature-compensation term per channel. Between auto-rezero and temperature compensation, the dead zones (`DEAD_T = 16`, `DEAD_R = 20`) can shrink substantially, restoring small-motion sensitivity.
 
-Note on Phase 2 formulation: measuring the 9×6 Jacobian and pseudo-inverting it is equivalent to directly regressing a 6×9 matrix from sensor deltas to pose by least squares. The direct-regression form is preferable in practice because it extends naturally to nonlinear features (e.g. appending quadratic terms of the sensor deltas to the input vector) as a middle step between Phase 2 and the full model-based Phase 3. One practical wrinkle: humans cannot produce perfectly pure single-axis motions, so the guided capture should use *held* max-deflection poses (repeated a few times, averaged) rather than free motion sweeps.
+Note on Phase 2 formulation: measuring the 9×6 Jacobian and pseudo-inverting it is equivalent to directly regressing a 6×9 matrix from sensor deltas to pose by least squares. The direct-regression form extends naturally to nonlinear features (e.g. appending quadratic terms of the sensor deltas to the input vector) as a middle step between Phase 2 and the full model-based Phase 3 — but it requires pose labels, which guided sweeps don't provide. So the pipeline is: sweep-PCA to build the linear J (no labels needed), and if quadratic correction is later wanted, generate the labels from the fitted dipole model instead of from the user.
 
 ### Suggested order & validation
 
@@ -119,7 +126,7 @@ This means `Config.h` values become *defaults* loaded at boot and overridden by 
   - Live strip charts of all raw channels, temperatures, and the six outputs (ImPlot).
   - 6DoF preview: bar meters plus a simple 3D-cube gizmo driven by the output pose — the "preview the results" view.
   - Crosstalk panel: user exercises one axis at a time; the app computes off-axis RMS vs. on-axis peak and renders a 6×6 heatmap. This is the before/after metric for Phases 1–3.
-  - Calibration wizard: walks through the 12 held poses, records averaged deltas, solves the 6×9 matrix (optionally with quadratic features), previews the result live, then uploads and saves to flash.
+  - Calibration wizard: walks through the guided slow sweeps (twist both ways, rim-press circle, slide circle, press/pull), records each segment, runs the per-gesture PCA, solves the 6×9 matrix, previews the decoupled result live (with per-gesture re-record), then uploads and saves to flash.
   - Tuning panel: sliders for gains/dead zones/smoothing/curve bound to the serial command channel, with save-to-flash and export-`Config.h` buttons.
   - Record/replay: log raw streams to file and replay them through candidate mapping algorithms offline — this is also how the Phase 3 dipole model gets prototyped before porting to the RP2040.
 - **Location**: `tools/tuner/` in this repo, with its own CMakeLists and a README.
