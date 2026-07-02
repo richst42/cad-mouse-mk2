@@ -1,0 +1,4 @@
+build/
+cadmouse_tuner.ini
+cadmouse_log.csv
+cadmouse_config_export.h

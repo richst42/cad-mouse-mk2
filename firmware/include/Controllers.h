@@ -1,5 +1,6 @@
 #pragma once
 
+#include "controllers/CommandController.h"
 #include "controllers/HIDController.h"
 #include "controllers/InputController.h"
 #include "controllers/LEDController.h"
@@ -13,3 +14,4 @@ extern SensorController sensorController;
 extern MotionController motionController;
 extern HIDController hidController;
 extern TelemetryController telemetryController;
+extern CommandController commandController;

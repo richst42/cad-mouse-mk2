@@ -16,6 +16,11 @@ class SensorController {
   bool calibrationDone() const;
 
   const float* baseline() const;
+  const float* temperatures() const;
+
+  // Slowly pulls the baseline toward the current reading. Called while the
+  // device is at rest to absorb thermal drift and spring settling.
+  void slewBaseline(const float raw[9], float dt, float tau);
 
  private:
   static void powerOff(int pin);
@@ -31,4 +36,5 @@ class SensorController {
   unsigned long lastCalibrationSampleMs_ = 0;
   float calibrationSum_[9] = {};
   float baseline_[9] = {};
+  float temperatures_[3] = {};
 };

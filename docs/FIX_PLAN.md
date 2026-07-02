@@ -1,5 +1,7 @@
 # Fix Plan for Known Issues
 
+> **Implementation status:** firmware Phase 1 (soft dead band, filter-before-deadband, response curve), auto-rezero, temperature capture, the settings-in-flash refactor, the serial command protocol, the matrix-based motion pipeline, and the Windows tuner app (live plots, 6DoF preview, tuning panel, guided calibration wizard, crosstalk heatmap, CSV logging) are implemented — see `firmware/` and `tools/tuner/`. Still open: hardware items (travel limiters, spring revisions) and the optional dipole-model solver (Phase 3).
+
 This document plans fixes for the two main issues called out in the READMEs:
 
 1. **Motion processing** ([firmware/README.md](../firmware/README.md)): axis bleed between the six axes, and an implicit assumption that sensor readings are linear with displacement (they are not).

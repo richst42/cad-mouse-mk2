@@ -70,6 +70,22 @@ void SensorController::readRaw(float out[9]) {
   out[6] = mag3x;
   out[7] = mag3y;
   out[8] = mag3z;
+
+  temperatures_[0] = temp1;
+  temperatures_[1] = temp2;
+  temperatures_[2] = temp3;
+}
+
+const float* SensorController::temperatures() const { return temperatures_; }
+
+void SensorController::slewBaseline(const float raw[9], float dt, float tau) {
+  if (tau <= 0.0) {
+    return;
+  }
+  const float a = dt / (tau + dt);
+  for (int i = 0; i < 9; i++) {
+    baseline_[i] += a * (raw[i] - baseline_[i]);
+  }
 }
 
 void SensorController::beginCalibration() {

@@ -4,11 +4,13 @@
 
 #include "Config.h"
 #include "Controllers.h"
+#include "Settings.h"
 #include "StateMachine.h"
 
 void IdleState::enter() {
   lastUpdateMs_ = 0;
   lastActivityMs_ = millis();
+  lastMotionMs_ = lastActivityMs_;
   ledController.setSolid(Config::LED_IDLE_COLOR);
 }
 
@@ -29,12 +31,22 @@ void IdleState::runMotionPipeline(float dt, unsigned long now) {
 
   if (motionController.hasMotionActivity()) {
     lastActivityMs_ = now;
+    lastMotionMs_ = now;
+  } else {
+    // Quiet long enough: slowly re-learn the rest pose to absorb thermal
+    // drift and spring settling without a manual recalibration.
+    const DeviceSettings& s = settingsStore.data();
+    if (s.rezeroEnabled &&
+        (now - lastMotionMs_) >= (unsigned long)(s.rezeroDelayS * 1000.0)) {
+      sensorController.slewBaseline(raw, dt, s.rezeroTauS);
+    }
   }
 
   const uint16_t buttonBits = inputController.buttonBits();
   const bool hidReportSent = hidController.sendReports(motion, buttonBits);
   if (telemetryController.enabled()) {
-    telemetryController.publish(motion, buttonBits, hidReportSent);
+    telemetryController.publish(raw, sensorController.temperatures(), motion,
+                                buttonBits, hidReportSent);
   }
 }
 

@@ -30,6 +30,16 @@ const float DEAD_R = 20.0;
 // Smoothing
 const float SMOOTH_TAU_S = 0.08;
 
+// Response curve exponent applied after the dead band (1.0 = linear,
+// >1.0 = softer near center / steeper at full deflection)
+const float CURVE_EXP = 1.0;
+
+// Slow baseline re-zero while the device is at rest. Compensates thermal
+// drift and spring settling without a manual recalibration.
+const bool REZERO_ENABLED = true;
+const float REZERO_DELAY_S = 2.0;
+const float REZERO_TAU_S = 10.0;
+
 // Final axis output range
 const float AXIS_LIMIT = 350.0;
 

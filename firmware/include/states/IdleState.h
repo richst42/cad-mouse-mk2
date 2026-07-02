@@ -15,4 +15,5 @@ class IdleState : public State {
 
   unsigned long lastUpdateMs_ = 0;
   unsigned long lastActivityMs_ = 0;
+  unsigned long lastMotionMs_ = 0;
 };
