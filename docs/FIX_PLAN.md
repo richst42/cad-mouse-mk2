@@ -49,9 +49,13 @@ The author notes the processing "may eventually be replaced entirely." The princ
 - Fit the full 6-DoF pose each frame by **least-squares against a magnetic dipole model** of the knob's magnets versus the three known sensor positions (Gauss-Newton, seeded with the previous frame's pose; 3–5 iterations converge). This handles nonlinearity *and* coupling exactly, not just to first order.
 - Prototype offline first: log raw telemetry (`TelemetryController` already streams it) while moving the knob, fit the model on a PC, and validate before porting to the RP2040. The RP2040 has no FPU, so profile; if too slow, fall back to Phase 2's linear map plus a lookup-table correction sampled from the model.
 
-#### Bonus (cheap, high value): slow baseline auto-rezero
+#### Bonus (cheap, high value): slow baseline auto-rezero + temperature compensation
 
 Thermal drift and spring settling shift the rest point between manual calibrations. When all axes have been inside the dead zone for a few seconds, slowly pull `baseline_` toward the current reading (time constant ~10 s). This also masks gradual spring creep — see Issue 2.
+
+The TLx493D sensors already report die temperature, and `SensorController::readRaw()` reads it on every frame and discards it ([SensorController.cpp:59-61](../firmware/src/controllers/SensorController.cpp)). Log temperature alongside field data during test captures; if the baseline correlates with temperature, add a simple linear temperature-compensation term per channel. Between auto-rezero and temperature compensation, the dead zones (`DEAD_T = 16`, `DEAD_R = 20`) can shrink substantially, restoring small-motion sensitivity.
+
+Note on Phase 2 formulation: measuring the 9×6 Jacobian and pseudo-inverting it is equivalent to directly regressing a 6×9 matrix from sensor deltas to pose by least squares. The direct-regression form is preferable in practice because it extends naturally to nonlinear features (e.g. appending quadratic terms of the sensor deltas to the input vector) as a middle step between Phase 2 and the full model-based Phase 3. One practical wrinkle: humans cannot produce perfectly pure single-axis motions, so the guided capture should use *held* max-deflection poses (repeated a few times, averaged) rather than free motion sweeps.
 
 ### Suggested order & validation
 
@@ -93,6 +97,43 @@ The baseline auto-rezero from Issue 1 directly compensates gradual spring sag, e
 
 ---
 
+## Host tuning app (Windows, Dear ImGui)
+
+A desktop companion app for live preview, calibration, and tuning. This becomes the test harness that quantifies crosstalk before/after each firmware phase, and removes the edit-`Config.h`-and-reflash loop entirely.
+
+### Firmware side — serial protocol (prerequisite)
+
+The current telemetry ([TelemetryController.cpp](../firmware/src/controllers/TelemetryController.cpp)) prints only the six *filtered* outputs as Teleplot-style text, every 5th frame. The app needs more, so extend the serial link with:
+
+- **Streaming**: a compact line or binary-framed record per frame containing the raw 9-vector, die temperatures, baseline, pre-filter axis values, and final outputs. Selectable stream modes (off / outputs-only / full) via command.
+- **Command channel** for runtime configuration: `get`/`set` for gains, dead zones, smoothing tau, response-curve exponent, sign flips; `save` to persist to flash (LittleFS); `cal` to trigger zero-calibration or start the guided 12-pose capture; `matrix` to upload a decoupling matrix computed on the PC.
+
+Runtime-settable parameters persisted to flash are strongly preferable to regenerating firmware: tuning becomes an instant A/B comparison with no reflash and no toolchain on the tuning machine. As a fallback for source-level changes, the app can export a `Config.h` snippet matching the current slider state.
+
+This means `Config.h` values become *defaults* loaded at boot and overridden by stored settings — a small refactor of `Config` from constants to a settings struct.
+
+### App side
+
+- **Stack**: Dear ImGui + ImPlot, Win32/DirectX 11 backend (the stock ImGui example scaffold), CMake, serial via Win32 `CreateFile`/overlapped I/O or libserialport, Eigen for the least-squares calibration solve. No other dependencies.
+- **Views**:
+  - Live strip charts of all raw channels, temperatures, and the six outputs (ImPlot).
+  - 6DoF preview: bar meters plus a simple 3D-cube gizmo driven by the output pose — the "preview the results" view.
+  - Crosstalk panel: user exercises one axis at a time; the app computes off-axis RMS vs. on-axis peak and renders a 6×6 heatmap. This is the before/after metric for Phases 1–3.
+  - Calibration wizard: walks through the 12 held poses, records averaged deltas, solves the 6×9 matrix (optionally with quadratic features), previews the result live, then uploads and saves to flash.
+  - Tuning panel: sliders for gains/dead zones/smoothing/curve bound to the serial command channel, with save-to-flash and export-`Config.h` buttons.
+  - Record/replay: log raw streams to file and replay them through candidate mapping algorithms offline — this is also how the Phase 3 dipole model gets prototyped before porting to the RP2040.
+- **Location**: `tools/tuner/` in this repo, with its own CMakeLists and a README.
+
+### Suggested build order
+
+1. Firmware serial protocol + settings-in-flash refactor (needed by everything else).
+2. App scaffold: serial connect, live plots, 6DoF preview, tuning sliders.
+3. Crosstalk metric panel (baseline measurement of the current firmware).
+4. Calibration wizard + matrix upload (lands together with firmware Phase 2).
+5. Record/replay for offline algorithm work (feeds Phase 3).
+
+---
+
 ## Summary of concrete next steps
 
 | # | Item | Area | Effort | Impact |
@@ -103,7 +144,10 @@ The baseline auto-rezero from Issue 1 directly compensates gradual spring sag, e
 | 4 | Travel limiters in knob/stem | Enclosure CAD | Small | Biggest spring-life win |
 | 5 | Spring material & print guidance in README | Docs | Small | Immediate builder value |
 | 6 | Root fillets / more arms in parametric spring | Enclosure CAD | Medium | Lower per-cycle stress |
-| 7 | Dipole-model pose solver (offline prototype first) | Firmware/R&D | Large | Full nonlinearity fix |
-| 8 | Knob revision for steel spring / O-rings | Enclosure CAD | Large | Fallback if 4–6 insufficient |
+| 7 | Serial command protocol + settings in flash (`Config` → runtime settings) | Firmware | Medium | Enables live tuning, no reflash |
+| 8 | ImGui tuner app: plots, 6DoF preview, tuning sliders, crosstalk metric | Host app (`tools/tuner/`) | Medium | Preview + before/after measurement |
+| 9 | Calibration wizard in app + matrix upload | Host app + firmware | Medium | Makes item 3 usable |
+| 10 | Dipole-model pose solver (offline prototype via app record/replay) | Firmware/R&D | Large | Full nonlinearity fix |
+| 11 | Knob revision for steel spring / O-rings | Enclosure CAD | Large | Fallback if 4–6 insufficient |
 
-Items 1–2 and 5 are quick wins; item 3 is the core fix for the motion-processing complaint; items 4 and 6 address the spring without changing the build much; items 7–8 are the fallbacks the author already anticipated.
+Items 1–2 and 5 are quick wins; item 3 is the core fix for the motion-processing complaint; items 4 and 6 address the spring without changing the build much; items 7–9 build the tuning/preview toolchain; items 10–11 are the fallbacks the author already anticipated.
