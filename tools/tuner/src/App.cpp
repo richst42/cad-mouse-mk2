@@ -119,6 +119,11 @@ void App::send(const std::string& cmd) {
   console_.push_back(logLine);
 }
 
+void App::sendQuiet(const std::string& cmd) {
+  if (!port_.isOpen()) return;
+  port_.write(cmd);
+}
+
 void App::pumpSerial() {
   if (!port_.isOpen()) return;
 
@@ -238,6 +243,7 @@ void App::onSample(const protocol::StreamSample& s) {
 
 void App::frame() {
   pumpSerial();
+  flasher_.tick();
 
   ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSize(ImVec2(360, 330), ImGuiCond_FirstUseEver);
@@ -266,6 +272,12 @@ void App::frame() {
   ImGui::SetNextWindowPos(ImVec2(1010, 710), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSize(ImVec2(330, 170), ImGuiCond_FirstUseEver);
   drawConsole();
+
+  if (showHelp_) {
+    ImGui::SetNextWindowPos(ImVec2(300, 120), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(560, 620), ImGuiCond_FirstUseEver);
+    drawHelp();
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -344,8 +356,52 @@ void App::drawConnectionPanel() {
     ImGui::SameLine();
     ImGui::TextUnformatted(csvPath_.c_str());
   }
+  ImGui::SameLine();
+  if (ImGui::Button(showHelp_ ? "Hide help" : "Help")) showHelp_ = !showHelp_;
+
+  ImGui::Separator();
+  drawFlashControls();
 
   ImGui::End();
+}
+
+void App::drawFlashControls() {
+  ImGui::TextUnformatted("Firmware");
+
+  const Flasher::State state = flasher_.state();
+  if (state == Flasher::State::Idle) {
+    if (ImGui::Button("Flash firmware (.uf2)...")) {
+      const std::string uf2 = Flasher::pickUf2File();
+      if (!uf2.empty()) {
+        // Use the open port if connected, otherwise the selected one. The
+        // port must be closed before the 1200-baud bootloader touch.
+        std::string comPort;
+        if (port_.isOpen()) {
+          comPort = port_.portName();
+          disconnect();
+        } else if (!availablePorts_.empty()) {
+          comPort = availablePorts_[selectedPort_];
+        }
+        console_.push_back("flashing " + uf2);
+        flasher_.start(comPort, uf2);
+      }
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(also works with BOOT held at plug-in)");
+  } else {
+    ImVec4 color = state == Flasher::State::Done
+                       ? ImVec4(0.3f, 0.9f, 0.3f, 1)
+                   : state == Flasher::State::Error
+                       ? ImVec4(0.9f, 0.4f, 0.3f, 1)
+                       : ImVec4(0.9f, 0.8f, 0.2f, 1);
+    ImGui::TextColored(color, "%s", flasher_.message().c_str());
+    if (state == Flasher::State::Done || state == Flasher::State::Error) {
+      if (ImGui::SmallButton("Dismiss")) {
+        flasher_.reset();
+        refreshPorts();
+      }
+    }
+  }
 }
 
 void App::drawTuningPanel() {
@@ -381,6 +437,52 @@ void App::drawTuningPanel() {
         send(protocol::cmdSet("rezero_on", on ? 1.0 : 0.0));
       }
     }
+  }
+
+  if (ImGui::CollapsingHeader("LEDs")) {
+    // Mid-drag updates go out (throttled, unlogged) so the ring previews
+    // live; the final value is sent and logged on release.
+    const double now = hostNowMs();
+    auto throttledSet = [&](const char* name, float value) {
+      if (now - lastStreamSendMs_ > 150.0) {
+        sendQuiet(protocol::cmdSet(name, value));
+        lastStreamSendMs_ = now;
+      }
+    };
+
+    auto itBright = params_.find("led_bright");
+    if (itBright != params_.end()) {
+      float v = itBright->second;
+      if (ImGui::SliderFloat("Brightness", &v, 0.0f, 255.0f, "%.0f")) {
+        itBright->second = v;
+        throttledSet("led_bright", v);
+      }
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        send(protocol::cmdSet("led_bright", v));
+      }
+    }
+
+    auto colorEdit = [&](const char* name, const char* label) {
+      auto it = params_.find(name);
+      if (it == params_.end()) return;
+      const unsigned packed = static_cast<unsigned>(it->second);
+      float rgb[3] = {((packed >> 16) & 0xFF) / 255.0f,
+                      ((packed >> 8) & 0xFF) / 255.0f,
+                      (packed & 0xFF) / 255.0f};
+      if (ImGui::ColorEdit3(label, rgb)) {
+        const unsigned next =
+            (static_cast<unsigned>(rgb[0] * 255.0f + 0.5f) << 16) |
+            (static_cast<unsigned>(rgb[1] * 255.0f + 0.5f) << 8) |
+            static_cast<unsigned>(rgb[2] * 255.0f + 0.5f);
+        it->second = static_cast<float>(next);
+        throttledSet(name, it->second);
+      }
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        send(protocol::cmdSet(name, it->second));
+      }
+    };
+    colorEdit("led_idle", "Idle color");
+    colorEdit("led_cal", "Calibrating color");
   }
 
   if (ImGui::CollapsingHeader("Axis directions",
@@ -777,6 +879,134 @@ void App::drawConsole() {
   ImGui::End();
 }
 
+void App::drawHelp() {
+  if (!ImGui::Begin("Help", &showHelp_)) {
+    ImGui::End();
+    return;
+  }
+
+  if (ImGui::CollapsingHeader("Quick start", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::TextWrapped(
+        "1. Flash the updated firmware once (see 'Flashing firmware').\n"
+        "2. Pick the COM port and click Connect. The app starts full "
+        "streaming and mirrors the device settings.\n"
+        "3. Hands off the device, click 'Zero (re-center)'.\n"
+        "4. Run the Calibration Wizard (~2 minutes). Apply, then Save to "
+        "flash.\n"
+        "5. Check the Crosstalk panel, fix inverted axes in Tuning, lower "
+        "the dead zones to taste, Save again.");
+  }
+
+  if (ImGui::CollapsingHeader("Flashing firmware")) {
+    ImGui::TextWrapped(
+        "'Flash firmware (.uf2)...' updates the device firmware without any "
+        "toolchain. The app reboots the board into its bootloader (by "
+        "touching the port at 1200 baud), waits for the RPI-RP2 drive to "
+        "appear, and copies the file; the board reboots itself when done.");
+    ImGui::TextWrapped(
+        "If the device is unresponsive: unplug it, hold the BOOT button "
+        "while plugging back in (the RPI-RP2 drive appears), then use the "
+        "flash button - no port selection needed.");
+    ImGui::TextWrapped(
+        "The .uf2 comes from building the firmware (pio run produces "
+        ".pio/build/seeed_xiao_rp2040/firmware.uf2) or from a release.");
+    ImGui::TextWrapped(
+        "Flashing does NOT erase your tuning: settings and calibration live "
+        "in a separate flash area and survive firmware updates.");
+  }
+
+  if (ImGui::CollapsingHeader("Calibration wizard - what and why")) {
+    ImGui::TextWrapped(
+        "The stock mapping computes each axis from fixed formulas, which "
+        "bleeds motion between axes. The wizard measures how YOUR unit's "
+        "sensors respond to each motion and computes a matrix that cancels "
+        "that bleed.");
+    ImGui::TextWrapped(
+        "You cannot move the knob on one pure axis - and you don't have to. "
+        "Four steps are simple holds at full deflection (press, twist, "
+        "slide, rim press); they anchor one axis each. Two steps are slow "
+        "circles; the app extracts the second axis of each pair from the "
+        "plane the circle traces. Imperfect, wobbly gestures are expected - "
+        "the math separates the contamination.");
+    ImGui::BulletText("Move SLOWLY during circles; 2 full laps is plenty.");
+    ImGui::BulletText(
+        "Keep deflection at the limit during holds and circles.");
+    ImGui::BulletText(
+        "Directions (right / away from you) assume the cable points away "
+        "from you. If an axis feels mirrored afterward, flip it in Tuning.");
+    ImGui::BulletText(
+        "In the review screen, 'plane separation' above ~5 and "
+        "'signal/noise' above ~20x per axis means a good capture; Redo any "
+        "step that looks bad.");
+    ImGui::TextWrapped(
+        "Apply uploads the matrix and resets gains to 1.0 (the matrix "
+        "already maps full deflection to full output). Nothing is permanent "
+        "until you click Save to flash.");
+  }
+
+  if (ImGui::CollapsingHeader("Tuning reference")) {
+    ImGui::BulletText("Gain: per-axis speed multiplier (1.0 = calibrated).");
+    ImGui::BulletText(
+        "Dead zone T/R: output counts ignored around rest. Lower = more "
+        "sensitive; raise if the view creeps when hands-off.");
+    ImGui::BulletText(
+        "Smoothing tau: low-pass time constant. Higher = smoother but "
+        "laggier.");
+    ImGui::BulletText(
+        "Response curve: 1.0 = linear; higher = finer control near center, "
+        "steeper at the edge.");
+    ImGui::BulletText(
+        "Auto re-zero: after 'delay' seconds at rest the zero point slowly "
+        "re-learns (time constant 'tau'), absorbing drift and spring "
+        "settling.");
+    ImGui::BulletText(
+        "Invert Tx..Rz: flips an axis; use after calibration if a "
+        "direction feels backwards.");
+    ImGui::BulletText("LEDs: ring brightness and state colors, live.");
+  }
+
+  if (ImGui::CollapsingHeader("Crosstalk measurement")) {
+    ImGui::TextWrapped(
+        "Pick an axis, click Record 5s, and move ONLY that axis to full "
+        "deflection back and forth. Each cell shows how much the other "
+        "axes responded, as a percentage of the driven axis. Green < 5%%, "
+        "yellow < 15%%. Record all six axes before and after calibration "
+        "to see the improvement.");
+  }
+
+  if (ImGui::CollapsingHeader("Troubleshooting")) {
+    ImGui::BulletText(
+        "No ports listed: check the USB cable (must be data-capable), then "
+        "Refresh.");
+    ImGui::BulletText(
+        "Connected but no data: the device streams sensor data only when "
+        "idle - wait for calibration (blue spinner) to finish.");
+    ImGui::BulletText(
+        "Output drifts after long sessions: enable Auto re-zero, or click "
+        "Zero with hands off.");
+    ImGui::BulletText(
+        "Axes feel wrong after calibration: flip directions in Tuning; "
+        "re-run the wizard if crosstalk stays high.");
+    ImGui::BulletText(
+        "Made it worse? 'Factory defaults' then 'Save to flash' returns to "
+        "stock behavior (the default matrix).");
+    ImGui::BulletText(
+        "Bricked/unresponsive: hold BOOT while plugging in, then flash a "
+        "known-good .uf2.");
+  }
+
+  if (ImGui::CollapsingHeader("Logging & scripting")) {
+    ImGui::TextWrapped(
+        "'Start CSV log' records timestamped raw sensor values, "
+        "temperatures, and outputs to cadmouse_log.csv - useful for "
+        "offline analysis and for reporting issues. The Console accepts "
+        "raw protocol commands (PING, GET *, SET dead_t 8, STREAM PLOT, "
+        "MAT?...) - the same text protocol any script can use.");
+  }
+
+  ImGui::End();
+}
+
 // --------------------------------------------------------------------------
 // Utilities
 // --------------------------------------------------------------------------
@@ -805,14 +1035,20 @@ void App::exportConfigHeader() {
                "const float CURVE_EXP = %.3f;\n"
                "const bool REZERO_ENABLED = %s;\n"
                "const float REZERO_DELAY_S = %.2f;\n"
-               "const float REZERO_TAU_S = %.2f;\n",
+               "const float REZERO_TAU_S = %.2f;\n"
+               "const int LED_BRIGHTNESS = %.0f;\n"
+               "const unsigned long LED_IDLE_COLOR = 0x%06X;\n"
+               "const unsigned long LED_CALIBRATING_COLOR = 0x%06X;\n",
                p("gain_tx", 28), p("gain_ty", 28), p("gain_tz", 24),
                p("gain_rx", 18), p("gain_ry", 18), p("gain_rz", 20),
                p("sign_tx", -1), p("sign_ty", 1), p("sign_tz", -1),
                p("sign_rx", 1), p("sign_ry", 1), p("sign_rz", 1),
                p("dead_t", 16), p("dead_r", 20), p("tau", 0.08f),
                p("curve", 1.0f), p("rezero_on", 1) != 0.0f ? "true" : "false",
-               p("rezero_delay", 2.0f), p("rezero_tau", 10.0f));
+               p("rezero_delay", 2.0f), p("rezero_tau", 10.0f),
+               p("led_bright", 40),
+               static_cast<unsigned>(p("led_idle", 0x00FF00)),
+               static_cast<unsigned>(p("led_cal", 0x0000FF)));
   std::fclose(f);
   console_.push_back(std::string("wrote ") + path);
 }

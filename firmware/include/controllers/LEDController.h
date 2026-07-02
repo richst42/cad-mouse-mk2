@@ -12,6 +12,11 @@ class LEDController {
   void updateSpinner();
   void off();
 
+  // Re-reads brightness/colors from the settings store and re-applies them
+  // to whatever is currently showing. Called after LED params change over
+  // the command channel.
+  void refreshFromSettings();
+
  private:
   enum class Mode {
     Off,

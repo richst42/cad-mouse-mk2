@@ -22,6 +22,7 @@ if(WIN32)
   add_executable(cadmouse_tuner WIN32
     ${CORE_SOURCES}
     src/SerialPort.cpp
+    src/Flasher.cpp
     src/App.cpp
     src/main_win32.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -38,7 +39,7 @@ if(WIN32)
     ${imgui_SOURCE_DIR}
     ${implot_SOURCE_DIR})
 
-  target_link_libraries(cadmouse_tuner PRIVATE d3d11 dxgi d3dcompiler)
+  target_link_libraries(cadmouse_tuner PRIVATE d3d11 dxgi d3dcompiler comdlg32)
   target_compile_definitions(cadmouse_tuner PRIVATE UNICODE _UNICODE)
 else()
   # Off-Windows we only build the math/protocol tests.

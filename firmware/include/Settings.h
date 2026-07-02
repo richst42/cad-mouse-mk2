@@ -18,6 +18,12 @@ struct DeviceSettings {
   float rezeroDelayS;     // how long the device must be quiet first
   float rezeroTauS;       // slew time constant once active
 
+  // LEDs. Colors are 0xRRGGBB stored as float (exact up to 2^24) so they fit
+  // the uniform float parameter table of the command channel.
+  float ledBrightness;  // 0..255
+  float ledIdleColor;
+  float ledCalColor;
+
   // 6x9 decoupling matrix mapping baseline-subtracted sensor deltas to a
   // 6DoF pose. When matrixValid is 0 the built-in geometry-derived matrix
   // is used instead (equivalent to the original hand-derived formulas).

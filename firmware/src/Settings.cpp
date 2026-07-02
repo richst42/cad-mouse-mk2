@@ -9,7 +9,7 @@ SettingsStore settingsStore;
 
 namespace {
 const uint32_t kMagic = 0x43444D32;  // "CDM2"
-const uint16_t kVersion = 1;
+const uint16_t kVersion = 2;
 const int kEepromSize = 1024;
 
 struct PersistHeader {
@@ -35,6 +35,10 @@ void SettingsStore::loadDefaults() {
   data_.rezeroEnabled = Config::REZERO_ENABLED ? 1 : 0;
   data_.rezeroDelayS = Config::REZERO_DELAY_S;
   data_.rezeroTauS = Config::REZERO_TAU_S;
+
+  data_.ledBrightness = Config::LED_BRIGHTNESS;
+  data_.ledIdleColor = Config::LED_IDLE_COLOR;
+  data_.ledCalColor = Config::LED_CALIBRATING_COLOR;
 
   data_.matrixValid = 0;
   memset(data_.matrix, 0, sizeof(data_.matrix));

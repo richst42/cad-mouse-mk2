@@ -55,4 +55,4 @@ The USB serial port carries telemetry and a command channel (both handled by [`C
 | `STREAM OFF\|PLOT\|OUT\|FULL` | telemetry mode (`PLOT` = Teleplot format, `FULL` = raw + temps + outputs) |
 | `MAT <row> <9 values>`, `MATON`, `MATOFF`, `MAT?` | upload/enable/inspect the decoupling matrix |
 
-Parameter names: `gain_tx|ty|tz|rx|ry|rz`, `sign_*`, `dead_t`, `dead_r`, `tau`, `curve`, `rezero_on`, `rezero_delay`, `rezero_tau`.
+Parameter names: `gain_tx|ty|tz|rx|ry|rz`, `sign_*`, `dead_t`, `dead_r`, `tau`, `curve`, `rezero_on`, `rezero_delay`, `rezero_tau`, `led_bright`, `led_idle`, `led_cal` (colors are decimal `0xRRGGBB` values).

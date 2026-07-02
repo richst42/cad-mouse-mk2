@@ -21,6 +21,15 @@ tuning the CAD Mouse MK2 live over USB serial — no reflashing needed.
   slow circles fill in the rest, and the math separates the contamination.
 - **Crosstalk panel** — drive one axis for 5 seconds and get a 6×6 heatmap of
   bleed percentages. Use it to measure before/after the calibration.
+- **Firmware flashing** — `Flash firmware (.uf2)…` updates the device with no
+  toolchain: the app reboots the board into its UF2 bootloader (1200-baud
+  touch), waits for the `RPI-RP2` drive, and copies the file. Also works with
+  a board already in bootloader mode (BOOT held at plug-in). Settings and
+  calibration live in a separate flash area and survive firmware updates.
+- **LED controls** — ring brightness and the idle/calibrating colors, applied
+  live with color pickers.
+- **In-app help** — a Help window covers setup, flashing, the calibration
+  gestures, every tuning parameter, and troubleshooting.
 - **CSV logging** — record raw streams for offline algorithm work.
 
 ## Building
@@ -41,8 +50,10 @@ Linux/macOS: `cmake -B build && cmake --build build && ./build/test_core`.
 
 ## Using it
 
-1. Flash the updated firmware (this repo, `pio run -t upload`), plug the
-   device in, launch the tuner, pick the COM port, **Connect**.
+1. Flash the updated firmware: build it once with `pio run` (produces
+   `.pio/build/seeed_xiao_rp2040/firmware.uf2`) or grab a released `.uf2`,
+   then use the app's **Flash firmware** button — or `pio run -t upload`.
+   Then pick the COM port and **Connect**.
 2. The app switches the device to full streaming and mirrors its settings.
 3. Run **Zero** with hands off if the rest point looks offset.
 4. Run the **Calibration Wizard** (~2 minutes, 7 steps). After **Apply**,

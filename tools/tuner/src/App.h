@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Calibration.h"
+#include "Flasher.h"
 #include "Protocol.h"
 #include "SerialPort.h"
 
@@ -25,6 +26,7 @@ class App {
   void disconnect();
   void pumpSerial();
   void send(const std::string& cmd);
+  void sendQuiet(const std::string& cmd);  // no console echo (drag updates)
   void handleResponse(const protocol::Response& r);
   void onSample(const protocol::StreamSample& s);
 
@@ -36,6 +38,8 @@ class App {
   void drawCalibrationWizard();
   void drawCrosstalkPanel();
   void drawConsole();
+  void drawHelp();
+  void drawFlashControls();
 
   void applyCalibrationToDevice();
   void exportConfigHeader();
@@ -97,4 +101,11 @@ class App {
   // CSV logging.
   FILE* csv_ = nullptr;
   std::string csvPath_;
+
+  // Firmware flashing.
+  Flasher flasher_;
+
+  // Help window.
+  bool showHelp_ = true;
+  double lastStreamSendMs_ = 0.0;  // throttle for mid-drag param updates
 };

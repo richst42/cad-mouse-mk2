@@ -41,6 +41,9 @@ int paramTable(ParamEntry out[32]) {
   out[n++] = {"curve", &s.curveExp, 0.25, 4.0};
   out[n++] = {"rezero_delay", &s.rezeroDelayS, 0.1, 60.0};
   out[n++] = {"rezero_tau", &s.rezeroTauS, 0.5, 300.0};
+  out[n++] = {"led_bright", &s.ledBrightness, 0.0, 255.0};
+  out[n++] = {"led_idle", &s.ledIdleColor, 0.0, 16777215.0};
+  out[n++] = {"led_cal", &s.ledCalColor, 0.0, 16777215.0};
   return n;
 }
 
@@ -122,9 +125,11 @@ void CommandController::handleLine(char* line) {
     if (!settingsStore.load()) {
       settingsStore.loadDefaults();
     }
+    ledController.refreshFromSettings();
     Serial.println("OK");
   } else if (nameEquals(verb, "DEFAULTS")) {
     settingsStore.loadDefaults();
+    ledController.refreshFromSettings();
     Serial.println("OK");
   } else if (nameEquals(verb, "ZERO")) {
     zeroRequested_ = true;
@@ -214,6 +219,9 @@ void CommandController::handleSet(const char* name, const char* value) {
       *params[i].value = (v < 0.0) ? -1.0 : 1.0;
     } else {
       *params[i].value = v;
+    }
+    if (strncmp(name, "led_", 4) == 0) {
+      ledController.refreshFromSettings();
     }
     Serial.println("OK");
     return;

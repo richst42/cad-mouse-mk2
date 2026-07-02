@@ -1,5 +1,6 @@
 #include "controllers/LEDController.h"
 #include "Config.h"
+#include "Settings.h"
 
 LEDController::LEDController()
     : ring_(Config::LED_COUNT, Config::PIN_LED_DATA,
@@ -23,7 +24,8 @@ void LEDController::begin() {
   digitalWrite(Config::PIN_LED_LS, LOW);
 
   ring_.begin();
-  ring_.setBrightness(Config::LED_BRIGHTNESS);
+  ring_.setBrightness(
+      static_cast<uint8_t>(settingsStore.data().ledBrightness));
   ring_.show();
 }
 
@@ -73,6 +75,18 @@ void LEDController::updateSpinner() {
   spinnerIndex_++;
   if (spinnerIndex_ >= pixelCount) {
     spinnerIndex_ = 0;
+  }
+}
+
+void LEDController::refreshFromSettings() {
+  const DeviceSettings& s = settingsStore.data();
+  ring_.setBrightness(static_cast<uint8_t>(s.ledBrightness));
+
+  // setBrightness is lossy on stored pixel data, so repaint what is showing.
+  if (mode_ == Mode::Solid) {
+    setSolid(static_cast<unsigned long>(s.ledIdleColor));
+  } else if (mode_ == Mode::Spinner) {
+    color_ = toNeoColor(static_cast<unsigned long>(s.ledCalColor));
   }
 }
 

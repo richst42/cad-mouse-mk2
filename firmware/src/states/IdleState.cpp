@@ -11,7 +11,8 @@ void IdleState::enter() {
   lastUpdateMs_ = 0;
   lastActivityMs_ = millis();
   lastMotionMs_ = lastActivityMs_;
-  ledController.setSolid(Config::LED_IDLE_COLOR);
+  ledController.setSolid(
+      static_cast<unsigned long>(settingsStore.data().ledIdleColor));
 }
 
 bool IdleState::handleCalibrationRequest() {
